@@ -4,3 +4,4 @@ chromadb
 sentence-transformers
 pypdf
 PyPDF2
+faiss-cpu
