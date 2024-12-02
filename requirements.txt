@@ -10,3 +10,4 @@ tqdm
 pydantic
 uvicorn
 fastapi
+langchain_community
