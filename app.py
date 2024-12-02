@@ -1,12 +1,13 @@
 import streamlit as st
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
-from langchain.llms import HuggingFaceHub
-from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.document_loaders import PyPDFLoader
+from langchain_community.llms import HuggingFaceHub  # Updated
+from langchain_community.vectorstores import Chroma  # Updated
+from langchain_community.embeddings import HuggingFaceEmbeddings  # Updated
+from langchain_community.document_loaders import PyPDFLoader  # Updated
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
+
 
 # Set API Key for Hugging Face
 os.environ['HUGGINGFACEHUB_API_TOKEN'] = "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"
