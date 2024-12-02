@@ -1,6 +1,6 @@
 streamlit
 langchain
-langchain-community
+langchain-community>=0.3.0
 chromadb
 sentence-transformers
 PyPDF2
