@@ -11,3 +11,4 @@ pydantic
 uvicorn
 fastapi
 langchain_community
+pypdf
