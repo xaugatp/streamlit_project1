@@ -2,65 +2,98 @@ import streamlit as st
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 from langchain.llms import HuggingFaceHub
-from langchain.vectorstores import FAISS
+from langchain.vectorstores import Chroma
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
 
 # Set API Key for Hugging Face
-api_key_filepath = "API_Key.txt"
-with open(api_key_filepath, "r") as f:
-    api_key = f.read().strip()
-os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
+os.environ['HUGGINGFACEHUB_API_TOKEN'] = "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"
 
-# Upload and Load PDF
-st.title("AI-Based Generative Search System")
-uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
-if uploaded_file:
-    with open("uploaded.pdf", "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    st.success("PDF uploaded successfully!")
+# Streamlit App Configuration
+st.set_page_config(page_title="Insurance Chatbot", layout="wide")
+st.title("Insurance Policy Query Chatbot")
 
-    # Load and Split PDF
-    loader = PyPDFLoader("uploaded.pdf")
-    pages = loader.load()
+# Sidebar for Uploading PDFs
+st.sidebar.header("Upload Policy Documents")
+uploaded_files = st.sidebar.file_uploader("Upload PDF Files", type=["pdf"], accept_multiple_files=True)
 
-    # Split PDF into chunks
+# Initialize Vector Store
+@st.cache_resource
+def initialize_vector_store(uploaded_files):
+    if not uploaded_files:
+        return None
+    # Save PDFs locally and load them
+    pdf_loader = []
+    for file in uploaded_files:
+        with open(file.name, "wb") as f:
+            f.write(file.getvalue())
+        pdf_loader.append(PyPDFLoader(file.name))
+    
+    # Merge all PDFs
+    documents = []
+    for loader in pdf_loader:
+        documents.extend(loader.load())
+
+    # Split documents into chunks
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=150)
-    splits = text_splitter.split_documents(pages)
-    st.write(f"Number of chunks created: {len(splits)}")
+    chunks = text_splitter.split_documents(documents)
 
-    # Create Embeddings and Vector Store using FAISS
+    # Initialize embedding and vector store
     embedding = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    vectordb = FAISS.from_documents(documents=splits, embedding=embedding)
+    vector_store = Chroma.from_documents(documents=chunks, embedding=embedding, persist_directory="./vector_store")
+    return vector_store
 
-    # Define Prompt Template
+if uploaded_files:
+    vectordb = initialize_vector_store(uploaded_files)
+    st.sidebar.success("Documents processed successfully!")
+else:
+    vectordb = None
+
+# Chatbot Functionality
+if vectordb:
+    # Prompt Template
     template = """
-    Use the following context to answer the question. If the answer isn't in the context, say "I don't know."
+    You are a helpful assistant with access to insurance policy documents.
+    Answer the question based on the context below. If no relevant information is found in the context, 
+    respond with "I don't know based on the provided documents."
     
-    Context: {context}
+    Context:
+    {context}
     
-    Question: {question}
+    Question:
+    {question}
     
     Answer:
     """
     QA_CHAIN_PROMPT = PromptTemplate.from_template(template)
 
-    # Ask a Question
-    question = st.text_input("Enter your question:")
-    if question:
-        # Initialize LLM and Retrieval QA Chain
-        llm = HuggingFaceHub(repo_id="google/flan-t5-base", model_kwargs={"temperature": 0})
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            retriever=vectordb.as_retriever(),
-            return_source_documents=True,
-            chain_type_kwargs={"prompt": QA_CHAIN_PROMPT},
-        )
+    # Initialize the RetrievalQA Chain
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=HuggingFaceHub(repo_id="google/flan-t5-base", model_kwargs={"temperature": 0.7}),
+        retriever=vectordb.as_retriever(),
+        return_source_documents=True,
+        chain_type_kwargs={"prompt": QA_CHAIN_PROMPT}
+    )
 
-        # Get and Display the Answer
-        result = qa_chain({"query": question})
-        st.write(f"Answer: {result['result']}")
-        st.write("Source Document(s):")
-        st.write(result["source_documents"][0])
+    # Chat Interface
+    st.header("Chat with the Insurance Bot")
+    user_input = st.text_input("Ask a question about the uploaded insurance policies:")
+    if user_input:
+        result = qa_chain({"query": user_input})
+        st.markdown(f"### Answer:\n{result['result']}")
+        
+        # Display Source Document (Optional)
+        with st.expander("Source Document"):
+            source_doc = result["source_documents"][0]
+            st.text(source_doc.page_content)
+else:
+    st.info("Please upload documents to enable the chatbot.")
+
+# Additional Notes
+st.sidebar.markdown("""
+### Notes:
+1. Ensure that the uploaded documents are relevant policy PDFs.
+2. For questions outside the context of the documents, the bot will indicate it cannot provide an answer.
+""")
