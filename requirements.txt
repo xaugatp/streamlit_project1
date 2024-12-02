@@ -12,3 +12,4 @@ uvicorn
 fastapi
 langchain_community
 pypdf
+sqlite3
