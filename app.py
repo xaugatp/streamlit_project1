@@ -1,5 +1,5 @@
 import sys
-import streamlit as st
+import solara
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 from langchain_community.llms import HuggingFaceHub  # Updated
@@ -13,16 +13,12 @@ import os
 # Set API Key for Hugging Face
 os.environ['HUGGINGFACEHUB_API_TOKEN'] = "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"
 
-# Streamlit App Configuration
-st.set_page_config(page_title="Insurance Chatbot", layout="wide")
-st.title("Insurance Policy Query Chatbot")
-
-# Sidebar for Uploading PDFs
-st.sidebar.header("Upload Policy Documents")
-uploaded_files = st.sidebar.file_uploader("Upload PDF Files", type=["pdf"], accept_multiple_files=True)
+# Global State
+uploaded_files = []
+vectordb = None
+user_input = ""
 
 # Initialize Vector Store
-@st.cache_resource
 def initialize_vector_store(uploaded_files):
     if not uploaded_files:
         return None
@@ -32,7 +28,7 @@ def initialize_vector_store(uploaded_files):
         with open(file.name, "wb") as f:
             f.write(file.getvalue())
         pdf_loader.append(PyPDFLoader(file.name))
-    
+
     # Merge all PDFs
     documents = []
     for loader in pdf_loader:
@@ -47,55 +43,70 @@ def initialize_vector_store(uploaded_files):
     vector_store = Chroma.from_documents(documents=chunks, embedding=embedding, persist_directory="./vector_store")
     return vector_store
 
-if uploaded_files:
-    vectordb = initialize_vector_store(uploaded_files)
-    st.sidebar.success("Documents processed successfully!")
-else:
-    vectordb = None
 
-# Chatbot Functionality
-if vectordb:
-    # Prompt Template
-    template = """
-    You are a helpful assistant with access to insurance policy documents.
-    Answer the question based on the context below. If no relevant information is found in the context, 
-    respond with "I don't know based on the provided documents."
-    
-    Context:
-    {context}
-    
-    Question:
-    {question}
-    
-    Answer:
-    """
-    QA_CHAIN_PROMPT = PromptTemplate.from_template(template)
+# Solara Components
 
-    # Initialize the RetrievalQA Chain
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=HuggingFaceHub(repo_id="google/flan-t5-base", model_kwargs={"temperature": 0.7}),
-        retriever=vectordb.as_retriever(),
-        return_source_documents=True,
-        chain_type_kwargs={"prompt": QA_CHAIN_PROMPT}
-    )
+@solara.component
+def UploadSection():
+    global uploaded_files
+    uploaded_files = solara.file_uploader("Upload Policy Documents (PDF)", multiple=True, accept=".pdf")
+    if uploaded_files:
+        solara.notification("Processing uploaded documents...")
+        global vectordb
+        vectordb = initialize_vector_store(uploaded_files)
+        solara.notification("Documents processed successfully!", type="success")
 
-    # Chat Interface
-    st.header("Chat with the Insurance Bot")
-    user_input = st.text_input("Ask a question about the uploaded insurance policies:")
-    if user_input:
-        result = qa_chain({"query": user_input})
-        st.markdown(f"### Answer:\n{result['result']}")
-        
-        # Display Source Document (Optional)
-        with st.expander("Source Document"):
-            source_doc = result["source_documents"][0]
-            st.text(source_doc.page_content)
-else:
-    st.info("Please upload documents to enable the chatbot.")
 
-# Additional Notes
-st.sidebar.markdown("""
-### Notes:
-1. Ensure that the uploaded documents are relevant policy PDFs.
-2. For questions outside the context of the documents, the bot will indicate it cannot provide an answer.
-""")
+@solara.component
+def ChatBot():
+    global user_input
+    if vectordb:
+        # Prompt Template
+        template = """
+        You are a helpful assistant with access to insurance policy documents.
+        Answer the question based on the context below. If no relevant information is found in the context, 
+        respond with "I don't know based on the provided documents."
+
+        Context:
+        {context}
+
+        Question:
+        {question}
+
+        Answer:
+        """
+        QA_CHAIN_PROMPT = PromptTemplate.from_template(template)
+
+        # Initialize the RetrievalQA Chain
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=HuggingFaceHub(repo_id="google/flan-t5-base", model_kwargs={"temperature": 0.7}),
+            retriever=vectordb.as_retriever(),
+            return_source_documents=True,
+            chain_type_kwargs={"prompt": QA_CHAIN_PROMPT}
+        )
+
+        # Chat Interface
+        solara.Markdown("### Chat with the Insurance Bot")
+        user_input = solara.Text("Ask a question about the uploaded insurance policies:")
+        if user_input:
+            result = qa_chain({"query": user_input})
+            solara.Markdown(f"### Answer:\n{result['result']}")
+
+            # Display Source Document (Optional)
+            with solara.Expand("Source Document"):
+                source_doc = result["source_documents"][0]
+                solara.Markdown(source_doc.page_content)
+    else:
+        solara.Info("Please upload documents to enable the chatbot.")
+
+
+@solara.component
+def App():
+    solara.Markdown("# Insurance Policy Query Chatbot")
+    UploadSection()
+    ChatBot()
+
+
+# Run Solara App
+if __name__ == "__main__":
+    solara.run(App)
